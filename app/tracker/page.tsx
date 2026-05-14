@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { CheckCircle, Circle, Search, Calendar, Filter, Users, Clock } from 'lucide-react'
+import { CheckCircle, Circle, Search, Calendar, Filter, Users, Clock, X } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -22,6 +22,19 @@ type ChecklistItem = {
   completed: boolean
 }
 
+type SItemDetail = {
+  collected: boolean
+  method?: 'direct' | 'email' | 'sms' | 'other'
+  otherMethod?: string
+  date?: string
+}
+
+type LabCollection = {
+  collected: boolean
+  testDate?: string
+  memo?: string
+}
+
 type SubjectVisit = {
   id: string
   name: string
@@ -31,6 +44,8 @@ type SubjectVisit = {
   checklist: ChecklistItem[]
   progress: number
   status: 'pending' | 'in-progress' | 'completed'
+  sDetail?: SItemDetail
+  labCollection?: LabCollection
 }
 
 const SITE_META: Record<SiteCode, { name: string; color: string; bgColor: string; borderColor: string }> = {
@@ -86,7 +101,9 @@ const MOCK_VISITS: SubjectVisit[] = [
     site: 'IJH',
     checklist: BASELINE_CHECKLIST.map(item => ({ ...item, completed: Math.random() > 0.7 })),
     progress: 0,
-    status: 'in-progress'
+    status: 'in-progress',
+    sDetail: { collected: false },
+    labCollection: { collected: false }
   },
   {
     id: 'IJH-002',
@@ -96,7 +113,9 @@ const MOCK_VISITS: SubjectVisit[] = [
     site: 'IJH',
     checklist: FU_CHECKLIST.map(item => ({ ...item, completed: Math.random() > 0.5 })),
     progress: 0,
-    status: 'pending'
+    status: 'pending',
+    sDetail: { collected: false },
+    labCollection: { collected: false }
   },
   {
     id: 'EWH-001',
@@ -106,7 +125,9 @@ const MOCK_VISITS: SubjectVisit[] = [
     site: 'EWH',
     checklist: BASELINE_CHECKLIST.map(item => ({ ...item, completed: Math.random() > 0.8 })),
     progress: 0,
-    status: 'completed'
+    status: 'completed',
+    sDetail: { collected: false },
+    labCollection: { collected: false }
   },
   {
     id: 'EWH-002',
@@ -116,7 +137,9 @@ const MOCK_VISITS: SubjectVisit[] = [
     site: 'EWH',
     checklist: FU_CHECKLIST.map(item => ({ ...item, completed: Math.random() > 0.6 })),
     progress: 0,
-    status: 'in-progress'
+    status: 'in-progress',
+    sDetail: { collected: false },
+    labCollection: { collected: false }
   },
   {
     id: 'SCH-001',
@@ -126,7 +149,9 @@ const MOCK_VISITS: SubjectVisit[] = [
     site: 'SCH',
     checklist: FU_CHECKLIST.map(item => ({ ...item, completed: Math.random() > 0.4 })),
     progress: 0,
-    status: 'pending'
+    status: 'pending',
+    sDetail: { collected: false },
+    labCollection: { collected: false }
   },
   {
     id: 'SCH-002',
@@ -136,7 +161,9 @@ const MOCK_VISITS: SubjectVisit[] = [
     site: 'SCH',
     checklist: BASELINE_CHECKLIST.map(item => ({ ...item, completed: false })),
     progress: 0,
-    status: 'pending'
+    status: 'pending',
+    sDetail: { collected: false },
+    labCollection: { collected: false }
   },
 ]
 
@@ -152,23 +179,33 @@ export default function TrackerPage() {
   )
 }
 
+const calculateProgress = (checklist: ChecklistItem[]): number => {
+  if (checklist.length === 0) return 0
+  const completed = checklist.filter(item => item.completed).length
+  return Math.round((completed / checklist.length) * 100)
+}
+
+const calculateStatus = (progress: number): 'pending' | 'in-progress' | 'completed' => {
+  if (progress === 0) return 'pending'
+  if (progress === 100) return 'completed'
+  return 'in-progress'
+}
+
 function TrackerPageContent() {
   const searchParams = useSearchParams()
   const selectedSubject = searchParams.get('subject')
   const [selectedSite, setSelectedSite] = useState<SiteCode>('IJH')
   const [visits, setVisits] = useState<SubjectVisit[]>(MOCK_VISITS)
-  const [selectedVisit, setSelectedVisit] = useState<SubjectVisit | null>(null)
+  const [selectedVisitId, setSelectedVisitId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'in-progress' | 'completed'>('all')
 
-  // Calculate progress for each visit
+  // Initialize progress on mount
   useEffect(() => {
     setVisits(prevVisits =>
       prevVisits.map(visit => {
-        const completedCount = visit.checklist.filter(item => item.completed).length
-        const totalCount = visit.checklist.length
-        const progress = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0
-        const status = progress === 0 ? 'pending' : progress === 100 ? 'completed' : 'in-progress'
+        const progress = calculateProgress(visit.checklist)
+        const status = calculateStatus(progress)
         return { ...visit, progress, status }
       })
     )
@@ -180,10 +217,10 @@ function TrackerPageContent() {
       const visit = visits.find(v => v.id === selectedSubject)
       if (visit) {
         setSelectedSite(visit.site)
-        setSelectedVisit(visit)
+        setSelectedVisitId(visit.id)
       }
     }
-  }, [selectedSubject, visits])
+  }, [selectedSubject])
 
   const filteredVisits = useMemo(() => {
     return visits.filter(visit => {
@@ -195,15 +232,53 @@ function TrackerPageContent() {
     })
   }, [visits, selectedSite, searchQuery, statusFilter])
 
+  // Get current visit from visits array to ensure it's always in sync
+  const currentVisit = useMemo(() => {
+    return visits.find(v => v.id === selectedVisitId) || null
+  }, [visits, selectedVisitId])
+
   const toggleChecklistItem = (visitId: string, itemId: string) => {
+    setVisits(prevVisits =>
+      prevVisits.map(visit => {
+        if (visit.id !== visitId) return visit
+        
+        const updatedChecklist = visit.checklist.map(item =>
+          item.id === itemId ? { ...item, completed: !item.completed } : item
+        )
+        
+        const progress = calculateProgress(updatedChecklist)
+        const status = calculateStatus(progress)
+        
+        return {
+          ...visit,
+          checklist: updatedChecklist,
+          progress,
+          status
+        }
+      })
+    )
+  }
+
+  const updateSDetail = (visitId: string, detail: Partial<SItemDetail>) => {
     setVisits(prevVisits =>
       prevVisits.map(visit =>
         visit.id === visitId
           ? {
               ...visit,
-              checklist: visit.checklist.map(item =>
-                item.id === itemId ? { ...item, completed: !item.completed } : item
-              )
+              sDetail: { ...visit.sDetail, ...detail }
+            }
+          : visit
+      )
+    )
+  }
+
+  const updateLabCollection = (visitId: string, detail: Partial<LabCollection>) => {
+    setVisits(prevVisits =>
+      prevVisits.map(visit =>
+        visit.id === visitId
+          ? {
+              ...visit,
+              labCollection: { ...visit.labCollection, ...detail }
             }
           : visit
       )
@@ -298,11 +373,11 @@ function TrackerPageContent() {
                       <Card
                         key={visit.id}
                         className={`cursor-pointer transition-all duration-200 hover:shadow-md ${
-                          selectedVisit?.id === visit.id
+                          selectedVisitId === visit.id
                             ? `${SITE_META[visit.site].borderColor} border-2 shadow-md`
                             : 'hover:border-border'
                         }`}
-                        onClick={() => setSelectedVisit(visit)}
+                        onClick={() => setSelectedVisitId(visit.id)}
                       >
                         <CardHeader className="pb-3">
                           <div className="flex items-center justify-between">
@@ -348,63 +423,178 @@ function TrackerPageContent() {
 
                 {/* Checklist Detail */}
                 <div className="space-y-4">
-                  {selectedVisit ? (
-                    <Card className={`${SITE_META[selectedVisit.site].bgColor} ${SITE_META[selectedVisit.site].borderColor} border`}>
-                      <CardHeader>
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <CardTitle className="flex items-center gap-2">
-                              <div className={`w-3 h-3 rounded-full ${
-                                selectedVisit.site === 'IJH' ? 'bg-blue-500' :
-                                selectedVisit.site === 'EWH' ? 'bg-green-500' : 'bg-red-500'
-                              }`} />
-                              {selectedVisit.name}
-                            </CardTitle>
-                            <CardDescription className="mt-1">
-                              {selectedVisit.id} • {selectedVisit.visitType} • {selectedVisit.time}
-                            </CardDescription>
+                  {currentVisit ? (
+                    <>
+                      {/* Lab Collection Section */}
+                      <Card className={`${SITE_META[currentVisit.site].bgColor} ${SITE_META[currentVisit.site].borderColor} border`}>
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-base flex items-center gap-2">
+                            Lab 수집 확인
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          <div className="flex items-center space-x-3 p-3 rounded-lg border bg-background">
+                            <Checkbox
+                              id={`${currentVisit.id}-lab-collected`}
+                              checked={currentVisit.labCollection?.collected || false}
+                              onCheckedChange={(checked) =>
+                                updateLabCollection(currentVisit.id, { collected: checked as boolean })
+                              }
+                              className="h-5 w-5"
+                            />
+                            <label
+                              htmlFor={`${currentVisit.id}-lab-collected`}
+                              className="font-medium cursor-pointer select-none"
+                            >
+                              Lab 수집 완료
+                            </label>
                           </div>
-                          <Badge variant={selectedVisit.status === 'completed' ? 'default' : 'secondary'}>
-                            {selectedVisit.progress}%
-                          </Badge>
-                        </div>
-                        <Progress value={selectedVisit.progress} className="mt-3" />
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-4">
-                          <h3 className="font-medium text-sm text-muted-foreground uppercase tracking-wide">
-                            체크리스트
-                          </h3>
-                          <div className="grid grid-cols-2 gap-3">
-                            {selectedVisit.checklist.map(item => (
-                              <div
-                                key={item.id}
-                                className={`flex items-center space-x-3 p-3 rounded-lg border transition-all ${
-                                  item.completed
-                                    ? 'bg-muted/50 border-muted'
-                                    : 'bg-background border-border hover:border-primary/50'
-                                }`}
-                              >
-                                <Checkbox
-                                  id={`${selectedVisit.id}-${item.id}`}
-                                  checked={item.completed}
-                                  onCheckedChange={() => toggleChecklistItem(selectedVisit.id, item.id)}
-                                  className="h-5 w-5"
+
+                          {currentVisit.labCollection?.collected && (
+                            <div className="space-y-3 pt-2 border-t">
+                              <div>
+                                <label className="text-sm font-medium mb-2 block">검사일자</label>
+                                <Input
+                                  type="date"
+                                  value={currentVisit.labCollection.testDate || ''}
+                                  onChange={(e) =>
+                                    updateLabCollection(currentVisit.id, { testDate: e.target.value })
+                                  }
+                                  className="text-sm"
                                 />
-                                <label
-                                  htmlFor={`${selectedVisit.id}-${item.id}`}
-                                  className={`font-medium cursor-pointer select-none ${
-                                    item.completed ? 'line-through text-muted-foreground' : ''
-                                  }`}
-                                >
-                                  {item.label}
-                                </label>
                               </div>
-                            ))}
+                              <div>
+                                <label className="text-sm font-medium mb-2 block">메모 (선택)</label>
+                                <textarea
+                                  placeholder="검사값이나 특이사항 기록..."
+                                  value={currentVisit.labCollection.memo || ''}
+                                  onChange={(e) =>
+                                    updateLabCollection(currentVisit.id, { memo: e.target.value })
+                                  }
+                                  className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary resize-none"
+                                  rows={2}
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+
+                      {/* Checklist Section */}
+                      <Card className={`${SITE_META[currentVisit.site].bgColor} ${SITE_META[currentVisit.site].borderColor} border`}>
+                        <CardHeader>
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <CardTitle className="flex items-center gap-2">
+                                <div className={`w-3 h-3 rounded-full ${
+                                  currentVisit.site === 'IJH' ? 'bg-blue-500' :
+                                  currentVisit.site === 'EWH' ? 'bg-green-500' : 'bg-red-500'
+                                }`} />
+                                {currentVisit.name}
+                              </CardTitle>
+                              <CardDescription className="mt-1">
+                                {currentVisit.id} • {currentVisit.visitType} • {currentVisit.time}
+                              </CardDescription>
+                            </div>
+                            <Badge variant={currentVisit.status === 'completed' ? 'default' : 'secondary'}>
+                              {currentVisit.progress}%
+                            </Badge>
                           </div>
-                        </div>
-                      </CardContent>
-                    </Card>
+                          <Progress value={currentVisit.progress} className="mt-3" />
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-4">
+                            <h3 className="font-medium text-sm text-muted-foreground uppercase tracking-wide">
+                              체크리스트
+                            </h3>
+                            <div className="grid grid-cols-2 gap-3">
+                              {currentVisit.checklist.map(item => (
+                                <div key={item.id}>
+                                  <div
+                                    className={`flex items-center space-x-3 p-3 rounded-lg border transition-all ${
+                                      item.completed
+                                        ? 'bg-muted/50 border-muted'
+                                        : 'bg-background border-border hover:border-primary/50'
+                                    }`}
+                                  >
+                                    <Checkbox
+                                      id={`${currentVisit.id}-${item.id}`}
+                                      checked={item.completed}
+                                      onCheckedChange={() => toggleChecklistItem(currentVisit.id, item.id)}
+                                      className="h-5 w-5"
+                                    />
+                                    <label
+                                      htmlFor={`${currentVisit.id}-${item.id}`}
+                                      className={`font-medium cursor-pointer select-none ${
+                                        item.completed ? 'line-through text-muted-foreground' : ''
+                                      }`}
+                                    >
+                                      {item.label}
+                                    </label>
+                                  </div>
+
+                                  {/* S Item Detail Section */}
+                                  {item.id === 'S' && currentVisit.checklist.find(c => c.id === 'S')?.completed && (
+                                    <div className="mt-2 ml-0 p-3 bg-background border border-dashed rounded-lg space-y-3">
+                                      <div>
+                                        <label className="text-sm font-medium mb-2 block">사본 전달 방식</label>
+                                        <Select
+                                          value={currentVisit.sDetail?.method || ''}
+                                          onValueChange={(value) =>
+                                            updateSDetail(currentVisit.id, { 
+                                              method: value as 'direct' | 'email' | 'sms' | 'other',
+                                              otherMethod: undefined
+                                            })
+                                          }
+                                        >
+                                          <SelectTrigger className="text-sm">
+                                            <SelectValue placeholder="전달 방식 선택" />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            <SelectItem value="direct">직접 전달</SelectItem>
+                                            <SelectItem value="email">이메일 전달</SelectItem>
+                                            <SelectItem value="sms">문자/카카오톡 전달</SelectItem>
+                                            <SelectItem value="other">기타</SelectItem>
+                                          </SelectContent>
+                                        </Select>
+                                      </div>
+
+                                      {currentVisit.sDetail?.method === 'other' && (
+                                        <div>
+                                          <label className="text-sm font-medium mb-2 block">기타 전달 방식</label>
+                                          <Input
+                                            placeholder="기타 방식 입력..."
+                                            value={currentVisit.sDetail.otherMethod || ''}
+                                            onChange={(e) =>
+                                              updateSDetail(currentVisit.id, { otherMethod: e.target.value })
+                                            }
+                                            className="text-sm"
+                                          />
+                                        </div>
+                                      )}
+
+                                      {currentVisit.sDetail?.method && (
+                                        <div>
+                                          <label className="text-sm font-medium mb-2 block">전달일자</label>
+                                          <Input
+                                            type="date"
+                                            value={currentVisit.sDetail.date || ''}
+                                            onChange={(e) =>
+                                              updateSDetail(currentVisit.id, { date: e.target.value })
+                                            }
+                                            className="text-sm"
+                                          />
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </>
                   ) : (
                     <Card className="h-full">
                       <CardContent className="flex items-center justify-center py-12">
