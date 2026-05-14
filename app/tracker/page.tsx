@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { Suspense, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { CheckCircle, Circle, Users } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -71,6 +71,18 @@ function generateChecklist(subjectId: string, visits: string[]): SubjectChecklis
 }
 
 export default function TrackerPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <p className="text-muted-foreground">로딩 중...</p>
+      </div>
+    }>
+      <TrackerPageContent />
+    </Suspense>
+  )
+}
+
+function TrackerPageContent() {
   const searchParams = useSearchParams()
   const selectedSubject = searchParams.get('subject')
   const [selectedSite, setSelectedSite] = useState<SiteCode>('IJH')

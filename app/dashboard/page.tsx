@@ -1,3 +1,5 @@
+"use client";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Activity, ArrowLeft, Building2, CalendarCheck2, CalendarClock, CalendarDays, ChevronDown, Footprints, Search, TriangleAlert, UserX, Users } from "lucide-react";
